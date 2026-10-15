@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Gauntlet</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#eef0f5; --ink:#161a2b; --muted:#5d6480; --panel:#ffffff; --line:#cfd4e4; --accent:#3b3bf0; --on-accent:#fff;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root{--bg:#12141f; --ink:#eef0fa; --muted:#9aa1bd; --panel:#1c1f30; --line:#343a58; --accent:#8f8fff; --on-accent:#12141f; color-scheme:dark;}
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Bricolage Grotesque",system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.4}
+.wrap{max-width:1100px;margin:0 auto;padding:28px 20px 64px}
+header{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap}
+h1{margin:0;font-size:clamp(2.6rem,8vw,4.8rem);font-weight:800;letter-spacing:-.03em;line-height:.95}
+.sub{margin:10px 0 0;color:var(--muted);font-size:1.05rem}
+.user{display:flex;align-items:center;gap:10px}
+.user span{font-weight:700}
+button{font:inherit;cursor:pointer}
+.btn{border:2px solid var(--ink);background:transparent;color:var(--ink);padding:8px 16px;border-radius:999px;font-weight:700}
+.btn.solid{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn:focus-visible,.tab:focus-visible,.tile:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
+.tabs{display:flex;gap:6px;margin:32px 0 24px;border-bottom:2px solid var(--line)}
+.tab{background:none;border:0;color:var(--muted);padding:12px 18px;font-weight:700;font-size:1.05rem;border-bottom:4px solid transparent;margin-bottom:-2px}
+.tab[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}
+.count{color:var(--muted);margin:0 0 16px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px}
+.tile{position:relative;display:flex;flex-direction:column;justify-content:flex-end;min-height:116px;padding:14px;border-radius:14px;color:#fff;text-decoration:none;
+  background:hsl(var(--h) 62% 36%);font-weight:800;font-size:1.2rem;line-height:1.1;letter-spacing:-.01em;transition:transform .15s}
+.tile:hover{transform:translateY(-3px)}
+.tile .num{position:absolute;top:10px;left:14px;font-size:.85rem;font-weight:700;opacity:.8}
+.tile.empty{background:transparent;border:2px dashed var(--line);color:var(--muted);font-weight:500;font-size:1rem;pointer-events:none}
+.msg{padding:28px;border:2px dashed var(--line);border-radius:14px;color:var(--muted)}
+.hidden{display:none}
+dialog{border:0;border-radius:18px;padding:26px;width:min(380px,92vw);background:var(--panel);color:var(--ink)}
+dialog::backdrop{background:rgba(10,12,24,.6)}
+dialog h2{margin:0 0 6px;font-size:1.6rem}
+dialog p{margin:0 0 16px;color:var(--muted);font-size:.95rem}
+input{width:100%;font:inherit;padding:11px 12px;border:2px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);margin-bottom:14px}
+.row{display:flex;gap:10px;justify-content:flex-end}
+@media (prefers-reduced-motion:reduce){.tile{transition:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>The Gauntlet</h1>
+      <p class="sub">Run every daily game before the day resets.</p>
+    </div>
+    <div class="user" id="userArea"></div>
+  </header>
+
+  <div class="tabs" role="tablist">
+    <button class="tab" role="tab" id="tab-gauntlet" aria-selected="true" aria-controls="panel-gauntlet">The Gauntlet</button>
+    <button class="tab" role="tab" id="tab-extra" aria-selected="false" aria-controls="panel-extra">Extra Daily Games</button>
+  </div>
+
+  <section id="panel-gauntlet" role="tabpanel" aria-labelledby="tab-gauntlet">
+    <p class="count" id="gauntletCount"></p>
+    <div class="grid" id="gauntletGrid"></div>
+  </section>
+
+  <section id="panel-extra" role="tabpanel" aria-labelledby="tab-extra" class="hidden">
+    <div class="grid" id="extraGrid"></div>
+  </section>
+</div>
+
+<dialog id="signInDialog">
+  <h2>Sign in</h2>
+  <p>Pick a username to sign in on this device.</p>
+  <input id="usernameInput" type="text" maxlength="24" placeholder="Username" autocomplete="username">
+  <div class="row">
+    <button class="btn" id="cancelSignIn" type="button">Cancel</button>
+    <button class="btn solid" id="confirmSignIn" type="button">Sign in</button>
+  </div>
+</dialog>
+
+<script>
+/* =====================================================================
+   EDIT YOUR GAMES HERE
+   Add a line like:  { name: "Game Name", link: "https://example.com" },
+   ===================================================================== */
+
+// How many boxes The Gauntlet shows. Slots you haven't filled show as "Empty slot".
+const GAUNTLET_SLOTS = 100;
+
+// The Gauntlet games (they appear in this order, numbered 1 to 100).
+const GAUNTLET_GAMES = [
+  { name: "Wordle", link: "https://www.nytimes.com/games/wordle/index.html" },
+  { name: "Connections", link: "https://www.nytimes.com/games/connections" },
+  { name: "Strands",     link: "https://www.nytimes.com/games/strands" },
+  { name: "Mini Crossword", link: "https://www.nytimes.com/games/strands?smtyp=cur&smid=bsky-nytimes" },
+  { name: "Washington Crossword", link: "https://www.washingtonpost.com/games/crossword/" },
+  { name: "Word Search", link: "https://games.washingtonpost.com/games/daily-word-search" },
+  { name: "Squaredle", link: "https://squaredle.app/" },
+  { name: "Waffle", link: "https://wafflegame.net/daily" },
+  { name: "Verticle", link: "https://verticle.netlify.app/" },
+  { name: "Weaver", link: "https://wordwormdormdork.com/" },
+  { name: "Xordle", link: "https://xordle.org/" },
+  { name: "Feudle", link: "https://googlefeud.com/feudle/" },
+  { name: "Adoptle", link: "https://tryhardguides.com/adoptle/" },
+  { name: "Contexto", link: "https://contexto.me/en/" },
+  { name: "Jumblie", link: "https://jumblie.com/" },
+  { name: "Angle", link: "https://angle.wtf/" },
+  { name: "Nerdle", link: "https://nerdlegame.com/" },
+  { name: "Mathler", link: "https://www.mathler.com/" },
+  { name: "Urban Stats", link: "https://urbanstats.org/quiz.html" },
+  { name: "Bazingle", link: "https://bazingle.wook.wtf/" },
+  { name: "Sudoku", link: "https://www.nytimes.com/puzzles/sudoku" },
+  { name: "Chess Puzzle", link: "https://www.chess.com/daily-chess-puzzle" },
+  { name: "Worldle", link: "https://worldle.teuteuf.fr/" },
+  { name: "Globle", link: "https://globle-game.com/" },
+  { name: "Tradle", link: "https://oec.world/en/games/tradle" },
+  { name: "Travle", link: "https://travle.earth/" },
+  { name: "Food Guesser", link: "https://www.foodguessr.com/" },
+  { name: "Countryle", link: "https://www.countryle.com/" },
+  { name: "Squirdle", link: "https://squirdle.fireblend.com/" },
+  { name: "Squirdle", link: "https://squirdle.fireblend.com/" },
+  { name: "Pokedoku", link: "https://pokedoku.com/" },
+  { name: "Gamedle", link: "https://www.gamedle.wtf/#" },
+  { name: "Minecraftle", link: "https://minecraftle.zachmanson.com/" },
+  { name: "Guess the Game", link: "https://guessthe.game/https://guessthe.game/" },
+  { name: "Framed", link: "https://framed.wtf/" },
+  { name: "Metazooa", link: "https://metazooa.com/" },
+  { name: "Metaflora", link: "https://flora.metazooa.com/" },
+  { name: "Murdle", link: "https://murdle.com/" },
+  { name: "Flagle", link: "https://www.flagle.io/" },
+  { name: "SpellCheck", link: "https://spellcheck.xyz/" },
+  { name: "Bandle", link: "https://bandle.app/" },
+  { name: "Guess the Audio", link: "https://guesstheaudio.com/" },
+  { name: "Cine2Nerdle", link: "https://www.cinenerdle2.app/" },
+  { name: "Redactle", link: "https://redactle.net/" },
+  { name: "Factle", link: "https://frontofficesports.com/trivia/factle/" },
+  { name: "Wikipedia Game", link: "https://www.thewikigamedaily.com/" },
+  { name: "Move To Movie", link: "https://movietomovie.com/" },
+  { name: "Dordle", link: "https://dordle.io/" },
+  { name: "Quordle", link: "https://www.merriam-webster.com/games/quordle/#/" },
+  { name: "Sedecordle", link: "https://www.sedecordle.com/" },
+  { name: "Duotrigordle", link: "https://duotrigordle.com/" },
+  { name: "Foxdle", link: "https://foxdle.jymfox.com/" },
+  { name: "Where Taken?", link: "https://wheretaken.com/game" },
+  { name: "Where Taken (USA)?", link: "https://wheretakenusa.teuteuf.fr/" },
+  { name: "TimeGussr", link: "https://timeguessr.com/" },
+  { name: "Geogussr Daily", link: "https://www.geoguessr.com/daily-challenges" },
+  { name: "Letter Boxed", link: "https://www.nytimes.com/puzzles/letter-boxed" },
+  { name: "Letterle", link: "https://wordly.org/wordle-games/letterle" },
+  { name: "Semantle", link: "https://semantle.com/" },
+  { name: "Tiles", link: "https://www.nytimes.com/puzzles/tiles" },
+  { name: "Octordle", link: "https://www.britannica.com/games/octordle/daily" },
+  { name: "Concludle", link: "https://tryhardguides.com/concludle/" },
+  { name: "Spelling Bee", link: "https://www.nytimes.com/puzzles/spelling-bee" },
+  { name: "Costcodle", link: "https://costcodle.com/" },
+  { name: "Numberle", link: "https://dduarte.github.io/numberle/" },
+  { name: "Absurdle", link: "https://qntm.org/files/absurdle/absurdle.html" },
+  { name: "Word 500", link: "https://word500.com/game?mode=daily" },
+  { name: "Chessle", link: "https://jackli.gg/chessle/" },
+  { name: "Cardle", link: "https://www.playcardle.com" },
+  { name: "Symble", link: "https://www.symble.app" },
+  { name: "Krillion", link: "https://krillion.io/" },
+  { name: "Cryptic Crossword", link: "https://www.minutecryptic.com" },
+  { name: "Padlock", link: "https://www.padlockgame.net" },
+  { name: "Dodeku", link: "https://dodeku.com" },
+  { name: "Minigolfie", link: "https://minigolfle.com" },
+  { name: "Bracket City", link: "https://www.theatlantic.com/games/bracket-city/" },
+  { name: "Daily Tens", link: "https://dailytens.com" },
+  { name: "Woodle", link: "https://play.woodle.today" },
+  { name: "Revertle", link: "https://www.puppetsquid.com/revertle/" },
+  { name: "Crosswordle", link: "https://crosswordle.serializer.ca" },
+  { name: "Squareword", link: "https://squareword.org" },
+  { name: "Citydle", link: "https://citydle.com" },
+  { name: "Mathle", link: "https://mathlegame.com" },
+  { name: "Primel", link: "https://converged.yt/primel/" },
+  { name: "Quizle", link: "https://quizl.io" },
+  { name: "Yeardle", link: "https://histordle.com/yeardle/" },
+  { name: "Hexle", link: "https://frankljin.github.io/hexle/" },
+  { name: "Brickdle", link: "https://www.brickdle.com" },
+  { name: "Pokle", link: "https://poklegame.com" },
+  { name: "Royal Family", link: "https://coffeefirst.games/royal-family" },
+  { name: "Geodle", link: "https://geodle.me" },
+  { name: "Statle", link: "https://statele.teuteuf.fr" },
+  { name: "Neighborle", link: "https://neighborle.com" },
+  { name: "Mineswifter", link: "https://mineswifter.com/" },
+  { name: "Coindle", link: "https://coindle.muhashi.com" },
+  { name: "Guess The Logo", link: "https://guessthelogo.wtf" },
+  { name: "Morsle", link: "https://morsle.fun" },
+  { name: "Codenames Daily", link: "https://codenames.game/daily/en" },
+  { name: "Decipher", link: "https://decipher.wtf/" },
+  { name: "Locatle", link: "https://locatle.strct.net" },
+  { name: "Rankle", link: "https://www.rankle.app/" },
+];
+
+// Extra Daily Games tab (no limit, add as many as you like).
+const EXTRA_GAMES = [
+  // { name: "Game Name", link: "https://example.com" },
+];
+
+/* ===================================================================== */
+
+function renderTiles(container, games, slots) {
+  container.innerHTML = "";
+  const total = slots ? Math.max(slots, games.length) : games.length;
+  for (let i = 0; i < total; i++) {
+    const g = games[i];
+    const hasGame = g && g.name && g.link;
+    const el = document.createElement(hasGame ? "a" : "div");
+    el.className = "tile" + (hasGame ? "" : " empty");
+    el.style.setProperty("--h", Math.round((i * 137.5) % 360));
+    if (slots) {
+      const num = document.createElement("span");
+      num.className = "num";
+      num.textContent = i + 1;
+      el.appendChild(num);
+    }
+    const label = document.createElement("span");
+    label.textContent = hasGame ? g.name : "Empty slot";
+    el.appendChild(label);
+    if (hasGame) {
+      el.href = g.link;
+      el.target = "_blank";
+      el.rel = "noopener noreferrer";
+    }
+    container.appendChild(el);
+  }
+}
+
+renderTiles(document.getElementById("gauntletGrid"), GAUNTLET_GAMES, GAUNTLET_SLOTS);
+const filled = GAUNTLET_GAMES.filter(g => g.name && g.link).length;
+document.getElementById("gauntletCount").textContent = filled + " of " + GAUNTLET_SLOTS + " games added";
+
+const extraGrid = document.getElementById("extraGrid");
+if (EXTRA_GAMES.filter(g => g.name && g.link).length) {
+  renderTiles(extraGrid, EXTRA_GAMES, 0);
+} else {
+  extraGrid.className = "msg";
+  extraGrid.textContent = "No extra daily games yet. Add them to EXTRA_GAMES in the code.";
+}
+
+/* ---------- Tabs ---------- */
+const tabs = { gauntlet: ["tab-gauntlet", "panel-gauntlet"], extra: ["tab-extra", "panel-extra"] };
+function showTab(key) {
+  for (const k in tabs) {
+    const on = k === key;
+    document.getElementById(tabs[k][0]).setAttribute("aria-selected", on);
+    document.getElementById(tabs[k][1]).classList.toggle("hidden", !on);
+  }
+}
+document.getElementById("tab-gauntlet").onclick = () => showTab("gauntlet");
+document.getElementById("tab-extra").onclick = () => showTab("extra");
+
+/* ---------- Sign in (saved in this browser only) ---------- */
+const dialog = document.getElementById("signInDialog");
+const input = document.getElementById("usernameInput");
+const userArea = document.getElementById("userArea");
+
+function getUser() { try { return localStorage.getItem("gauntlet-user"); } catch (e) { return null; } }
+function setUser(name) {
+  try { name ? localStorage.setItem("gauntlet-user", name) : localStorage.removeItem("gauntlet-user"); } catch (e) {}
+}
+
+function renderUser() {
+  const user = getUser();
+  userArea.innerHTML = "";
+  if (user) {
+    const who = document.createElement("span");
+    who.textContent = user;
+    const out = document.createElement("button");
+    out.className = "btn";
+    out.textContent = "Sign out";
+    out.onclick = () => { setUser(null); renderUser(); };
+    userArea.append(who, out);
+  } else {
+    const inBtn = document.createElement("button");
+    inBtn.className = "btn solid";
+    inBtn.textContent = "Sign in";
+    inBtn.onclick = () => { input.value = ""; dialog.showModal(); input.focus(); };
+    userArea.append(inBtn);
+  }
+}
+
+function confirmSignIn() {
+  const name = input.value.trim();
+  if (!name) { input.focus(); return; }
+  setUser(name);
+  dialog.close();
+  renderUser();
+}
+document.getElementById("confirmSignIn").onclick = confirmSignIn;
+document.getElementById("cancelSignIn").onclick = () => dialog.close();
+input.addEventListener("keydown", e => { if (e.key === "Enter") confirmSignIn(); });
+renderUser();
+
+/* LEADERBOARD: coming later (most Gauntlet games completed in one day). */
+</script>
+</body>
+</html>

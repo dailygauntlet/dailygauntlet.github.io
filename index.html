@@ -45,6 +45,16 @@ dialog h2{margin:0 0 6px;font-size:1.6rem}
 dialog p{margin:0 0 16px;color:var(--muted);font-size:.95rem}
 input{width:100%;font:inherit;padding:11px 12px;border:2px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);margin-bottom:14px}
 .row{display:flex;gap:10px;justify-content:flex-end}
+.bar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+.bar .count{margin:0}
+.tile.done{box-shadow:inset 0 0 0 3px #fff}
+.tile.done::after{content:"\2713";position:absolute;top:8px;right:10px;width:26px;height:26px;border-radius:50%;background:#fff;color:#17803f;display:grid;place-items:center;font-size:1rem;font-weight:800}
+textarea{width:100%;font:inherit;padding:11px 12px;border:2px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);margin-bottom:10px;resize:vertical}
+textarea:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
+#pasteMsg{min-height:1.4em;margin:0 0 12px;font-weight:700}
+#pasteMsg.ok{color:#17803f}
+#pasteMsg.bad{color:#c0392b}
+@media (prefers-color-scheme:dark){#pasteMsg.ok{color:#5fd08a}#pasteMsg.bad{color:#ff8a7a}}
 @media (prefers-reduced-motion:reduce){.tile{transition:none}}
 </style>
 </head>
@@ -64,11 +74,12 @@ input{width:100%;font:inherit;padding:11px 12px;border:2px solid var(--line);bor
   </div>
 
   <section id="panel-gauntlet" role="tabpanel" aria-labelledby="tab-gauntlet">
-    <p class="count" id="gauntletCount"></p>
+    <div class="bar"><p class="count" id="gauntletCount"></p><button class="btn solid pasteOpen" type="button">Paste result</button></div>
     <div class="grid" id="gauntletGrid"></div>
   </section>
 
   <section id="panel-extra" role="tabpanel" aria-labelledby="tab-extra" class="hidden">
+    <div class="bar"><p class="count">Daily games outside the 100.</p><button class="btn solid pasteOpen" type="button">Paste result</button></div>
     <div class="grid" id="extraGrid"></div>
   </section>
 </div>
@@ -80,6 +91,17 @@ input{width:100%;font:inherit;padding:11px 12px;border:2px solid var(--line);bor
   <div class="row">
     <button class="btn" id="cancelSignIn" type="button">Cancel</button>
     <button class="btn solid" id="confirmSignIn" type="button">Sign in</button>
+  </div>
+</dialog>
+
+<dialog id="pasteDialog">
+  <h2>Paste your result</h2>
+  <p>Press Share in the game, then paste what it copied. Solved games get a checkmark for today.</p>
+  <textarea id="pasteText" rows="6" placeholder="Wordle 1,234 3/6"></textarea>
+  <p id="pasteMsg" role="status"></p>
+  <div class="row">
+    <button class="btn" id="closePaste" type="button">Close</button>
+    <button class="btn solid" id="checkPaste" type="button">Check result</button>
   </div>
 </dialog>
 
@@ -122,7 +144,6 @@ const GAUNTLET_GAMES = [
   { name: "Travle", link: "https://travle.earth/" },
   { name: "Food Guesser", link: "https://www.foodguessr.com/" },
   { name: "Countryle", link: "https://www.countryle.com/" },
-  { name: "Squirdle", link: "https://squirdle.fireblend.com/" },
   { name: "Squirdle", link: "https://squirdle.fireblend.com/" },
   { name: "Pokedoku", link: "https://pokedoku.com/" },
   { name: "Gamedle", link: "https://www.gamedle.wtf/#" },
@@ -202,6 +223,38 @@ const EXTRA_GAMES = [
   // { name: "Game Name", link: "https://example.com" },
 ];
 
+// PASTE-RESULT RULES (optional).
+// A pasted result is matched to a game by the game's name in its first two lines.
+// It counts as solved unless the text shows a miss (like "X/6" or "failed").
+// For a game that needs special handling, add a rule whose key is the exact game name:
+//   "Game Name": { match: /text that identifies the game/i, solved: /text that proves a win/i },
+// "solved" can also be a function: solved: text => true or false
+// DATE CHECK: a result is rejected if it shows a date that is not today. For games that only print a
+// puzzle number, add num (a regex whose first group is the number) and start: [a known puzzle number,
+// "YYYY-MM-DD" of that puzzle]. Add utc: true for games that reset at midnight GMT instead of local time.
+// MINIMUM SCORE: minScore: 300 gives a checkmark only if the result's score is at least 300. The score is the
+// biggest number written next to "pts", "points" or "score". If a game words it differently, add score: /regex/
+// (its first group is the number).
+const SHARE_RULES = {
+  "Wordle": {
+    match: /Wordle\s+[\d,]+\s+[1-6X]\/6/i, solved: /Wordle\s+[\d,]+\s+[1-6]\/6/i,
+    num: /Wordle\s+([\d,]+)/i, start: [0, "2021-06-19"],
+  },
+  "Nerdle": {
+    match: /nerdlegame\s+\d+\s+[1-6X]\/6/i, solved: /nerdlegame\s+\d+\s+[1-6]\/6/i,
+    num: /nerdlegame\s+(\d+)/i, start: [1108, "2025-01-31"], utc: true,
+  },
+  "Strands": { match: /Strands\s*#\d+/i, num: /Strands\s*#(\d+)/i, start: [1, "2024-03-04"] },
+  // Krillion shares look like: "Krillion #96 🦐" then the score alone on the next line.
+  "Krillion": { match: /Krillion/i, minScore: 300, score: /Krillion\s*#\d+[^\n]*\n\s*(\d[\d,]*)/i },
+  "Connections": {
+    match: /Connections\s+Puzzle\s*#?\d+/i,
+    num: /Puzzle\s*#?([\d,]+)/i, start: [1, "2023-06-12"],
+    solved: t => t.split(/\r?\n/).filter(l => /^(?:🟨{4}|🟩{4}|🟦{4}|🟪{4})$/u.test(l.trim())).length >= 4,
+  },
+};
+const MISS = /\bX\/\d+|\bfailed\b|\bgave up\b|\bdid not (?:solve|finish)\b|❌/i;
+
 /* ===================================================================== */
 
 function renderTiles(container, games, slots) {
@@ -211,7 +264,9 @@ function renderTiles(container, games, slots) {
     const g = games[i];
     const hasGame = g && g.name && g.link;
     const el = document.createElement(hasGame ? "a" : "div");
-    el.className = "tile" + (hasGame ? "" : " empty");
+    const done = hasGame && isDone(g.name);
+    el.className = "tile" + (hasGame ? "" : " empty") + (done ? " done" : "");
+    if (done) el.setAttribute("aria-label", g.name + " (done today)");
     el.style.setProperty("--h", Math.round((i * 137.5) % 360));
     if (slots) {
       const num = document.createElement("span");
@@ -231,16 +286,22 @@ function renderTiles(container, games, slots) {
   }
 }
 
-renderTiles(document.getElementById("gauntletGrid"), GAUNTLET_GAMES, GAUNTLET_SLOTS);
-const filled = GAUNTLET_GAMES.filter(g => g.name && g.link).length;
-document.getElementById("gauntletCount").textContent = filled + " of " + GAUNTLET_SLOTS + " games added";
+function renderAll() {
+  renderTiles(document.getElementById("gauntletGrid"), GAUNTLET_GAMES, GAUNTLET_SLOTS);
+  const filled = GAUNTLET_GAMES.filter(g => g.name && g.link).length;
+  const doneToday = GAUNTLET_GAMES.filter(g => g.name && g.link && isDone(g.name)).length;
+  document.getElementById("gauntletCount").textContent = getUser()
+    ? doneToday + " of " + GAUNTLET_SLOTS + " done today"
+    : filled + " of " + GAUNTLET_SLOTS + " games added";
 
-const extraGrid = document.getElementById("extraGrid");
-if (EXTRA_GAMES.filter(g => g.name && g.link).length) {
-  renderTiles(extraGrid, EXTRA_GAMES, 0);
-} else {
-  extraGrid.className = "msg";
-  extraGrid.textContent = "No extra daily games yet. Add them to EXTRA_GAMES in the code.";
+  const extraGrid = document.getElementById("extraGrid");
+  if (EXTRA_GAMES.filter(g => g.name && g.link).length) {
+    extraGrid.className = "grid";
+    renderTiles(extraGrid, EXTRA_GAMES, 0);
+  } else {
+    extraGrid.className = "msg";
+    extraGrid.textContent = "No extra daily games yet. Add them to EXTRA_GAMES in the code.";
+  }
 }
 
 /* ---------- Tabs ---------- */
@@ -266,6 +327,7 @@ function setUser(name) {
 }
 
 function renderUser() {
+  renderAll();
   const user = getUser();
   userArea.innerHTML = "";
   if (user) {
@@ -297,7 +359,120 @@ document.getElementById("cancelSignIn").onclick = () => dialog.close();
 input.addEventListener("keydown", e => { if (e.key === "Enter") confirmSignIn(); });
 renderUser();
 
+/* ---------- Checkmarks: saved per username per day, reset at local midnight ---------- */
+function today() {
+  const d = new Date();
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+function doneKey() { return "gauntlet-done:" + getUser() + ":" + today(); }
+function getDone() { try { return JSON.parse(localStorage.getItem(doneKey()) || "[]"); } catch (e) { return []; } }
+function isDone(name) { return !!getUser() && getDone().includes(name); }
+function markDone(name) {
+  const list = getDone();
+  if (!list.includes(name)) list.push(name);
+  try { localStorage.setItem(doneKey(), JSON.stringify(list)); } catch (e) {}
+}
+
+/* ---------- Paste a result ---------- */
+function norm(s) { return s.toLowerCase().replace(/[^a-z0-9]/g, ""); }
+
+/* ---------- Date check ---------- */
+const MONTHS = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
+function dayNum(y, m, d) { return Math.round(Date.UTC(y, m - 1, d) / 86400000); }
+function todayNum(utc) {
+  const d = new Date();
+  return utc ? dayNum(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate())
+             : dayNum(d.getFullYear(), d.getMonth() + 1, d.getDate());
+}
+// Finds dates written in the result, like 2026-10-19, 19.10.2026, 10/19/2026, Oct 19, 2026 or 19 Oct 2026.
+function datesIn(text) {
+  const out = [];
+  const add = (y, mo, d) => { if (mo >= 1 && mo <= 12 && d >= 1 && d <= 31) out.push(dayNum(+y, +mo, +d)); };
+  const each = (re, fn) => { let m; while ((m = re.exec(text))) fn(m); };
+  const mon = "(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\\.?";
+  each(/\b(\d{4})-(\d{2})-(\d{2})\b/g, m => add(m[1], m[2], m[3]));
+  each(/\b(\d{1,2})\.(\d{1,2})\.(\d{4})\b/g, m => add(m[3], m[2], m[1]));
+  each(/\b(\d{1,2})\/(\d{1,2})\/(\d{4})\b/g, m => add(m[3], m[1], m[2]));
+  each(new RegExp("\\b" + mon + "\\s+(\\d{1,2})(?:st|nd|rd|th)?,?\\s+(\\d{4})\\b", "gi"), m => add(m[3], MONTHS.indexOf(m[1].toLowerCase()) + 1, m[2]));
+  each(new RegExp("\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+" + mon + ",?\\s+(\\d{4})\\b", "gi"), m => add(m[3], MONTHS.indexOf(m[2].toLowerCase()) + 1, m[1]));
+  return out;
+}
+// Returns a message if the result is from another day, or "" if it is fine (or has no date to check).
+function staleReason(game, text) {
+  const rule = SHARE_RULES[game.name];
+  if (rule && rule.num && rule.start) {
+    const m = text.match(rule.num);
+    if (m) {
+      const n = parseInt(m[1].replace(/,/g, ""), 10);
+      const [y, mo, d] = rule.start[1].split("-").map(Number);
+      const want = rule.start[0] + todayNum(rule.utc) - dayNum(y, mo, d);
+      if (n !== want) return game.name + " #" + n + " is not today's puzzle. Today is #" + want + ".";
+    }
+  }
+  const dates = datesIn(text);
+  if (dates.length && !dates.includes(todayNum(false))) return "That " + game.name + " result is from a different day.";
+  return "";
+}
+
+// Finds the score in a result: the biggest match of your own regex, or the biggest number next to "pts", "points" or "score".
+function scoreIn(text, re) {
+  const pats = re ? [new RegExp(re.source, "gi")]
+    : [/(\d[\d,]*)\s*(?:pts?|points?)\b/gi, /\b(?:score|points|total)\b\D{0,12}(\d[\d,]*)/gi];
+  for (const p of pats) {
+    const nums = [...text.matchAll(p)].map(m => parseInt(m[1].replace(/,/g, ""), 10));
+    if (nums.length) return Math.max(...nums);
+  }
+  return null;
+}
+
+function checkResult(text) {
+  const clean = text.trim();
+  if (!clean) return { error: "Paste a result first." };
+  const games = GAUNTLET_GAMES.concat(EXTRA_GAMES).filter(g => g.name && g.link);
+  let game = games.find(g => SHARE_RULES[g.name] && SHARE_RULES[g.name].match.test(clean));
+  if (!game) {
+    const head = norm(clean.split(/\r?\n/).filter(l => l.trim()).slice(0, 2).join(" "));
+    game = games.slice().sort((a, b) => norm(b.name).length - norm(a.name).length)
+      .find(g => head.includes(norm(g.name)));
+  }
+  if (!game) return { error: "Could not tell which game that is. Make sure the game name is in the result." };
+  const rule = SHARE_RULES[game.name];
+  let solved = !MISS.test(clean);
+  if (rule && rule.solved) solved = typeof rule.solved === "function" ? rule.solved(clean) : rule.solved.test(clean);
+  let why = "";
+  if (rule && rule.minScore != null) {
+    const pts = scoreIn(clean, rule.score);
+    if (pts === null) return { error: "Could not find the " + game.name + " score in that result." };
+    solved = pts >= rule.minScore;
+    why = game.name + " scored " + pts + ", but needs " + rule.minScore + " for a checkmark.";
+  }
+  return { game, solved, why, stale: staleReason(game, clean) };
+}
+
+const pasteDialog = document.getElementById("pasteDialog");
+const pasteText = document.getElementById("pasteText");
+const pasteMsg = document.getElementById("pasteMsg");
+function say(text, ok) { pasteMsg.textContent = text; pasteMsg.className = ok ? "ok" : "bad"; }
+
+document.querySelectorAll(".pasteOpen").forEach(b => b.onclick = () => {
+  pasteText.value = ""; say("", true);
+  pasteDialog.showModal(); pasteText.focus();
+});
+document.getElementById("closePaste").onclick = () => pasteDialog.close();
+document.getElementById("checkPaste").onclick = () => {
+  if (!getUser()) { say("Sign in first so your checkmarks are saved.", false); return; }
+  const r = checkResult(pasteText.value);
+  if (r.error) { say(r.error, false); return; }
+  if (r.stale) { say(r.stale, false); return; }
+  if (!r.solved) { say(r.why || (r.game.name + " looks like a miss, so no checkmark."), false); return; }
+  markDone(r.game.name);
+  renderAll();
+  pasteText.value = "";
+  say(r.game.name + " is checked off.", true);
+};
+
 /* LEADERBOARD: coming later (most Gauntlet games completed in one day). */
 </script>
 </body>
 </html>
+

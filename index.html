@@ -55,6 +55,12 @@ textarea:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
 #authMsg.ok{color:#17803f}
 #authMsg.bad{color:#c0392b}
 @media (prefers-color-scheme:dark){#authMsg.ok{color:#5fd08a}#authMsg.bad{color:#ff8a7a}}
+.board{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.board li{display:grid;grid-template-columns:56px 1fr auto;align-items:center;gap:12px;padding:12px 16px;border:2px solid var(--line);border-radius:12px;background:var(--panel)}
+.board li.me{border-color:var(--accent)}
+.board .place{font-weight:800;font-size:1.2rem}
+.board .name{font-weight:700;overflow-wrap:anywhere}
+.board .games{font-weight:800}
 #pasteMsg{min-height:1.4em;margin:0 0 12px;font-weight:700}
 #pasteMsg.ok{color:#17803f}
 #pasteMsg.bad{color:#c0392b}
@@ -75,6 +81,7 @@ textarea:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
   <div class="tabs" role="tablist">
     <button class="tab" role="tab" id="tab-gauntlet" aria-selected="true" aria-controls="panel-gauntlet">The Gauntlet</button>
     <button class="tab" role="tab" id="tab-extra" aria-selected="false" aria-controls="panel-extra">Extra Daily Games</button>
+    <button class="tab" role="tab" id="tab-board" aria-selected="false" aria-controls="panel-board">Leaderboard</button>
   </div>
 
   <section id="panel-gauntlet" role="tabpanel" aria-labelledby="tab-gauntlet">
@@ -85,6 +92,11 @@ textarea:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
   <section id="panel-extra" role="tabpanel" aria-labelledby="tab-extra" class="hidden">
     <div class="bar"><p class="count">Daily games outside the 100.</p><button class="btn solid pasteOpen" type="button">Paste result</button></div>
     <div class="grid" id="extraGrid"></div>
+  </section>
+
+  <section id="panel-board" role="tabpanel" aria-labelledby="tab-board" class="hidden">
+    <div class="bar"><p class="count" id="boardDay"></p><button class="btn" id="boardRefresh" type="button">Refresh</button></div>
+    <div id="boardList"></div>
   </section>
 </div>
 
@@ -289,7 +301,7 @@ function renderAll() {
 }
 
 /* ---------- Tabs ---------- */
-const tabs = { gauntlet: ["tab-gauntlet", "panel-gauntlet"], extra: ["tab-extra", "panel-extra"] };
+const tabs = { gauntlet: ["tab-gauntlet", "panel-gauntlet"], extra: ["tab-extra", "panel-extra"], board: ["tab-board", "panel-board"] };
 function showTab(key) {
   for (const k in tabs) {
     const on = k === key;
@@ -299,6 +311,7 @@ function showTab(key) {
 }
 document.getElementById("tab-gauntlet").onclick = () => showTab("gauntlet");
 document.getElementById("tab-extra").onclick = () => showTab("extra");
+document.getElementById("tab-board").onclick = () => { showTab("board"); loadBoard(); };
 
 /* ---------- Accounts (Supabase) ---------- */
 const sb = (typeof supabase !== "undefined" && !SUPABASE_URL.startsWith("PASTE"))
@@ -381,6 +394,37 @@ if (sb) {
   renderUser();
 }
 
+/* ---------- Leaderboard: most Gauntlet games completed today ---------- */
+// Usernames are added as plain text so nobody can sneak code in through a username.
+async function loadBoard() {
+  const list = document.getElementById("boardList"), note = document.getElementById("boardDay");
+  list.innerHTML = "";
+  if (!sb || !currentUser) { note.textContent = "Sign in to see the leaderboard."; return; }
+  note.textContent = "Loading...";
+  const { data, error } = await sb.rpc("leaderboard", { for_day: localDate() });
+  if (error) { note.textContent = "Could not load the leaderboard."; return; }
+  note.textContent = data.length ? "Most Gauntlet games completed today" : "No one has checked off a game yet today.";
+  const ol = document.createElement("ol");
+  ol.className = "board";
+  data.forEach(row => {
+    const li = document.createElement("li");
+    if (row.is_me) li.className = "me";
+    const place = document.createElement("span");
+    place.className = "place";
+    place.textContent = "#" + row.place;
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = row.username + (row.is_me ? " (you)" : "");
+    const games = document.createElement("span");
+    games.className = "games";
+    games.textContent = row.games + " / " + GAUNTLET_SLOTS;
+    li.append(place, name, games);
+    ol.appendChild(li);
+  });
+  list.appendChild(ol);
+}
+document.getElementById("boardRefresh").onclick = loadBoard;
+
 /* ---------- Paste a result (checked on the server) ---------- */
 const pasteDialog = document.getElementById("pasteDialog");
 const pasteText = document.getElementById("pasteText");
@@ -402,7 +446,7 @@ document.getElementById("checkPaste").onclick = async () => {
   if (data.ok) { pasteText.value = ""; loadDone(); }
 };
 
-/* LEADERBOARD: coming later (most Gauntlet games completed in one day). Read it from the results table. */
+
 </script>
 </body>
 </html>
